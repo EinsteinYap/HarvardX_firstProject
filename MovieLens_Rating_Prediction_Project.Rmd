@@ -45,9 +45,12 @@ dl <- "ml-10M100K.zip"
 ratings_file <- "ml-10M100K/ratings.dat"
 movies_file <- "ml-10M100K/movies.dat"
 
+
 # Download if not exists
 if (!file.exists(dl)) {
-  download.file("https://files.grouplens.org/datasets/movielens/ml-10m.zip", dl)
+  download.file("https://files.grouplens.org/datasets/movielens/ml-10m.zip", dl, 
+               method = "curl",
+              extra = "-k" )
 }
 
 if (!file.exists(ratings_file)) unzip(dl, ratings_file)
