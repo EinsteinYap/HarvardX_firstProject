@@ -35,9 +35,10 @@ movies_file <- "ml-10M100K/movies.dat"
 
 # Download dataset if not already present
 if (!file.exists(dl)) {
-  download.file("https://files.grouplens.org/datasets/movielens/ml-10m.zip", dl)
+  download.file("https://files.grouplens.org/datasets/movielens/ml-10m.zip", dl, 
+                method = "curl",
+                extra = "-k" )
 }
-
 # Extract required files
 if (!file.exists(ratings_file)) {
   unzip(dl, ratings_file)
@@ -134,7 +135,3 @@ rmse_final <- RMSE(predictions$pred, predictions$rating)
 
 # Output final RMSE (this will be used for grading)
 cat("Final Holdout Test RMSE:", round(rmse_final, 5), "\n")
-
-# Optional: save predictions or RMSE to workspace
-# rmse <- rmse_final
-# write.csv(predictions, "predictions.csv", row.names = FALSE)
