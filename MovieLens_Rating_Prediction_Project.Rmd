@@ -4,7 +4,9 @@ author: "Yap Kah Yong"
 date: "`r Sys.Date()`"
 output: pdf_document
 ---
-
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```  
 
 ## Introduction
 
@@ -18,13 +20,13 @@ I follow proper machine learning practices:
 The algorithm uses a **simple baseline model** with regularized user and item biases:
 
 where:
-- `μ` = global average rating
-- `b_u` = user bias (adjusted with regularization)
-- `b_i` = item (movie) bias (adjusted with regularization)
+- u = global average rating
+- b_u = user bias (adjusted with regularization)
+- b_i = item (movie) bias (adjusted with regularization)
 
 This model is fast, memory-efficient, and avoids the computational bottlenecks of matrix factorization or collaborative filtering.
 
-```{r setup, include=FALSE}
+```{r , include=FALSE}
 # Install required packages if not already installed
 if (!require(tidyverse)) install.packages("tidyverse", repos = "http://cran.us.r-project.org")
 if (!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.org")
@@ -38,7 +40,7 @@ set.seed(5)
 
 ```
 
-```{r load and split data,include=FALSE}
+```{r load and split data}
 # MovieLens 10M dataset
 options(timeout = 120)
 dl <- "ml-10M100K.zip"
@@ -94,7 +96,7 @@ rm(dl, ratings, movies, test_index, temp, movielens, removed)
 
 ```
 
-```{r split for development, include=FALSE}
+```{r split for development}
 
 # Split edx into train and test for model development
 set.seed(5)
@@ -104,14 +106,14 @@ test_set <- edx[-train_index, ]
 
 ```
 
-```{r train baseline model, include=FALSE}
-# --- Enhanced Baseline Model ---
+```{r train baseline model}
+# --- Train Baseline Model ---
 set.seed(5)
 
 # Global mean
 mu <- mean(edx$rating)
 
-# Regularization parameter
+# Regularization parameter the best I choose is 20
 lambda <- 20
 
 # User bias: b_u = sum(rating - mu) / (lambda + n_u)

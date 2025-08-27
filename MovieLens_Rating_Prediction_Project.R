@@ -99,7 +99,7 @@ rm(dl, ratings, movies, test_index, temp, movielens, removed)
 # Global average rating
 mu <- mean(edx$rating)
 
-# Regularization parameter (tuned separately)
+# Regularization parameter (tuned separately and I had choosen 20 as the best)
 lambda <- 20
 
 # User bias: b_u = sum(rating - mu) / (lambda + n_ratings_by_user)
