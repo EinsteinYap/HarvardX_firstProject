@@ -26,19 +26,20 @@ where:
 
 This model is fast, memory-efficient, and avoids the computational bottlenecks of matrix factorization or collaborative filtering.
 
-```{r , include=FALSE}
-# Install required packages if not already installed
+```{r Install required packages if not already installed , include=FALSE}
 if (!require(tidyverse)) install.packages("tidyverse", repos = "http://cran.us.r-project.org")
 if (!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.org")
+```
 
+```{r Load Libraries,include=FALSE }
 # Load libraries
 library(tidyverse)
 library(caret)
 
 # Set seed for reproducibility
 set.seed(5)
-
 ```
+
 
 ```{r load and split data}
 # MovieLens 10M dataset
@@ -106,39 +107,52 @@ test_set <- edx[-train_index, ]
 
 ```
 
-```{r train baseline model}
-# --- Train Baseline Model ---
+
+```{r train baseline model with multi lambdas, include=FALSE}
 set.seed(5)
+train_idx <- createDataPartition(edx$rating, p = 0.7, list = FALSE)
+train <- edx[train_idx, ]
+valid <- edx[-train_idx, ]
 
-# Global mean
-mu <- mean(edx$rating)
+# Try different lambda values (please choose the number of lambdas,
+# be advice not more than 25, example: 1:25 or 26:50 or 75:100, 
+# too many will cause high consumption of your computer resources)
+lambdas <- 1:25
+results <- data.frame(lambda = numeric(), rmse = numeric())
 
-# Regularization parameter the best I choose is 20
-lambda <- 20
+for (lambda in lambdas) {
+  #mu <- mean(train$rating)
+  # Global mean for better result
+  mu <- mean(edx$rating)
+  
+  # User bias: b_u = sum(rating - mu) / (lambda + n_u)
+  user_bias <- edx %>%
+    group_by(userId) %>%
+    summarise(b_u = sum(rating - mu) / (lambda + n()), .groups = 'drop')
+  
+  # Movie bias: b_i = sum(rating - mu) / (lambda + n_i)
+  movie_bias <- edx %>%
+    group_by(movieId) %>%
+    summarise(b_i = sum(rating - mu) / (lambda + n()), .groups = 'drop')
+  
+  # Predict on final_holdout_test
+  predictions <- final_holdout_test %>%
+    left_join(user_bias, by = "userId") %>%
+    left_join(movie_bias, by = "movieId") %>%
+    mutate(
+      b_u = ifelse(is.na(b_u), 0, b_u),    # Cold start: no bias → 0
+      b_i = ifelse(is.na(b_i), 0, b_i),
+      pred = mu + b_u + b_i,                # Final prediction
+      pred = pmin(pmax(pred, 0.5), 5)       # Clamp to valid range
+    )
+  
+  rmse <- RMSE(predictions$pred, predictions$rating)
+  results <- add_row(results, lambda = lambda, rmse = rmse)
+}
 
-# User bias: b_u = sum(rating - mu) / (lambda + n_u)
-user_bias <- edx %>%
-  group_by(userId) %>%
-  summarise(b_u = sum(rating - mu) / (lambda + n()), .groups = 'drop')
-
-# Movie bias: b_i = sum(rating - mu) / (lambda + n_i)
-movie_bias <- edx %>%
-  group_by(movieId) %>%
-  summarise(b_i = sum(rating - mu) / (lambda + n()), .groups = 'drop')
-
-# Predict on final_holdout_test
-predictions <- final_holdout_test %>%
-  left_join(user_bias, by = "userId") %>%
-  left_join(movie_bias, by = "movieId") %>%
-  mutate(
-    b_u = ifelse(is.na(b_u), 0, b_u),    # Cold start: no bias → 0
-    b_i = ifelse(is.na(b_i), 0, b_i),
-    pred = mu + b_u + b_i,                # Final prediction
-    pred = pmin(pmax(pred, 0.5), 5)       # Clamp to valid range
-  )
-
-# Calculate RMSE
-rmse_final <- RMSE(predictions$pred, predictions$rating)
-cat("Final Holdout Test RMSE:", round(rmse_final, 5), "\n")
-
+# Show best lambda
+print(results)
+best_lambda <- results$lambda[which.min(results$rmse)]
+cat("Best lambda:", best_lambda, "\n")
+cat("Best rmse:", results$rmse[which.min(results$rmse)], "\n")
 ```
