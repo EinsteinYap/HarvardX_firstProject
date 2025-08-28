@@ -10,23 +10,22 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ## Introduction
 
-In this project, a movie rating prediction algorithm is developed using the MovieLens 10M dataset. The goal is to predict user ratings for movies based on historical data. The model will be trained and validated using the `edx` dataset, and the final evaluation will be performed on the `final_holdout_test` set using **Root Mean Squared Error (RMSE)**.
+In this project, a movie rating prediction algorithm is developed using the MovieLens 10M dataset, a widely used benchmark dataset containing over 10 million user ratings for movies. The goal is to predict user ratings for movies based on historical data, evaluated using Root Mean Squared Error (RMSE) on a held-out test set.
 
-I follow proper machine learning practices:
-- Will **not** use `final_holdout_test` during training or model selection.
-- Use a train/test split on `edx` to tune and evaluate the model.
-- Only apply the final model to `final_holdout_test` once, at the end.
+The analysis follows proper machine learning practices:
 
-The algorithm uses a **simple baseline model** with regularized user and item biases:
+The final_holdout_test set is never used during training or model selection.
+Model hyperparameters (e.g., regularization strength) are tuned using a train/validation split of the edx dataset.
+The final model is applied to final_holdout_test only once, at the end.
+The algorithm uses a regularized baseline model that combines:
 
-where:
-- u = global average rating
-- b_u = user bias (adjusted with regularization)
-- b_i = item (movie) bias (adjusted with regularization)
+Global average rating
+Regularized user bias (how generous/harsh a user is)
+Regularized movie bias (how popular/liked a movie is)
+Time-based trend (how a user’s rating behavior changes over time)
+This approach is fast, memory-efficient, and avoids the computational complexity of matrix factorization or deep learning models.
 
-This model is fast, memory-efficient, and avoids the computational bottlenecks of matrix factorization or collaborative filtering.
-
-Some original code from Edx I placed them into chunck, so the codes more clean and easy to run for marking. 
+## Some original code from Edx I placed them into chunck, so the codes more clean and easy to run for marking. 
 ```{r Install required packages if not already installed , include=FALSE}
 if (!require(tidyverse)) install.packages("tidyverse", repos = "http://cran.us.r-project.org")
 if (!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.org")
@@ -47,7 +46,7 @@ library(caret)
 options(timeout = 120)
 dl <- "ml-10M100K.zip"
 
-# Download if not exists
+# Download if not exists, I have to add Method as Curl, else unable download from insecure link provided by edx
 if (!file.exists(dl)) {
   download.file("https://files.grouplens.org/datasets/movielens/ml-10m.zip", dl, 
                method = "curl",
@@ -97,26 +96,55 @@ edx <- rbind(edx, removed)
 
 rm(dl, ratings, movies, test_index, temp, movielens, removed)
 ```
+## Methods and Analysis
+Data Loading and Preprocessing
+The MovieLens 10M dataset is downloaded and parsed from ratings.dat and movies.dat. Each rating includes a user ID, movie ID, rating , and timestamp. The data is cleaned and joined to include movie titles and genres.
+
+A final_holdout_test set (10% of data) is created, ensuring all users and movies also appear in the training set (edx) to avoid cold-start issues during evaluation.
+
+## Model Development
+A regularized baseline model is used:
+where:
+b_u: user bias (regularized by lambda)
+
+b_i: movie bias (regularized by lambda)
+
+Hyperparameter lambda is tuned on a validation set (20% of edx) to minimize RMSE.
+
+Key Features
+Regularization: Prevents overfitting for users/movies with few ratings
+Time Trend: Captures user rating drift over time
+Clamping: Predictions are constrained to [0.5, 5.0]
 
 
 ```{r Split edx into train (80%) and valid (20%) for tuning, include=TRUE}
+# Split edx into training (80%) and validation (20%) sets
+# Used for hyperparameter tuning (lambda selection)
 train_idx <- createDataPartition(edx$rating, p = 0.8, list = FALSE)
 train <- edx[train_idx, ]
 valid <- edx[-train_idx, ]
+
+# Output split sizes
+cat("Training set size:", nrow(train), "\n")
+cat("Validation set size:", nrow(valid), "\n")
 ```
 
+
 ```{r Tune lambda on validation set (NOT final_holdout_test), include=TRUE}
+# Hyperparameter tuning: test different lambda values
+# Higher lambda = stronger regularization (shrink biases toward 0)
 lambdas <- c(50,100,200,300)
 results <- data.frame(lambda = numeric(), rmse = numeric())
 
 for (lambda in lambdas) {
-  mu <- mean(train$rating)  # Use train mean
+  mu <- mean(train$rating)   # Global mean from training set
   
-  # User and movie biases from train set
+  # Compute regularized user bias
   user_bias <- train %>%
     group_by(userId) %>%
     summarise(b_u = sum(rating - mu) / (lambda + n()), .groups = 'drop')
   
+   # Compute regularized movie bias
   movie_bias <- train %>%
     group_by(movieId) %>%
     summarise(b_i = sum(rating - mu) / (lambda + n()), .groups = 'drop')
@@ -136,19 +164,27 @@ for (lambda in lambdas) {
   results <- add_row(results, lambda = lambda, rmse = rmse)
 }
 
-# Choose best lambda
+# Select best lambda (lowest validation RMSE)
 best_lambda <- results$lambda[which.min(results$rmse)]
 cat("Best lambda:", best_lambda, "\n")
 cat("Best rmse:", results$rmse[which.min(results$rmse)], "\n")
+
+# Plot lambda vs. RMSE
+plot(results$lambda, results$rmse,
+     type = "b", pch = 19, col = "blue",
+     xlab = "Regularization Parameter (lambda)",
+     ylab = "Validation RMSE",
+     main = "Hyperparameter Tuning: lambda vs. RMSE")
+grid()
 ```
 
 ```{r final-model, include=TRUE}
-# Train final model on full edx
+# Train final model on full edx dataset using best_lambda
 mu_final <- mean(edx$rating, na.rm = TRUE)
 cat("Global mean (mu_final):", round(mu_final, 3), "\n")
 cat("Using best_lambda:", best_lambda, "\n")
 
-# User and movie biases
+# Compute final user and movie biases with best_lambda
 user_bias_final <- edx %>%
   group_by(userId) %>%
   summarise(b_u = sum(rating - mu_final) / (best_lambda + n()), .groups = 'drop')
@@ -157,10 +193,10 @@ movie_bias_final <- edx %>%
   group_by(movieId) %>%
   summarise(b_i = sum(rating - mu_final) / (best_lambda + n()), .groups = 'drop')
 
-# --- Add time trend (SAFE VERSION) ---
+# --- Add time trend with user-specific centering ---
 min_time <- min(edx$timestamp, na.rm = TRUE)
 
-# Compute time in days and user-specific centering
+# Convert timestamp to days and compute user-specific averages
 edx <- edx %>%
   group_by(userId) %>%
   mutate(
@@ -170,17 +206,17 @@ edx <- edx %>%
   ) %>%
   ungroup()
 
-# Fit time slope using centered time: (time_days - user_mean_time)
+# Fit time trend: slope of rating change over centered time
 user_time <- edx %>%
   group_by(userId) %>%
   summarise(
     n = n(),
     time_var = var(time_days),
-    # Only fit if user has variation
+    # Only fit if user has variation in time and >1 rating
     beta_t_raw = ifelse(n > 1 & time_var > 1,
                         cov(time_days - user_mean_time, rating - user_mean_rating, use = "complete.obs") / var(time_days - user_mean_time),
                         0),
-    # Clip to very small range
+     # Clip to small range to prevent explosion
     beta_t = pmin(pmax(beta_t_raw, -0.001), 0.001),
     user_mean_time = mean(user_mean_time),  # Save for prediction
     .groups = 'drop'
@@ -188,7 +224,7 @@ user_time <- edx %>%
   select(userId, beta_t, user_mean_time)
 
 
-# --- Final Prediction ---
+# --- Final Prediction on final_holdout_test ---
 predictions <- final_holdout_test %>%
   select(userId, movieId, rating, timestamp) %>%
   left_join(user_bias_final, by = "userId") %>%
@@ -215,7 +251,40 @@ rmse_final <- RMSE(predictions$pred, predictions$rating)
 cat("Final Holdout Test RMSE:", round(rmse_final, 5), "\n")
 
 ```
-## I Yap Kah Yong Acknowledgements to GroupLens for this online Harvard Edx project -- 
+```{r Visualization, include=TRUE}
 
 
-Source: https://grouplens.org/datasets/movielens/10m/ 
+# --- Distribution of User Biases ---
+hist(user_bias_final$b_u, breaks = 50, col = "skyblue", border = "white",
+     main = "Distribution of User Biases (b_u)",
+     xlab = "User Bias (deviation from global mean)")
+abline(v = 0, col = "red", lwd = 2)
+
+# --- Distribution of Movie Biases ---
+hist(movie_bias_final$b_i, breaks = 50, col = "lightgreen", border = "white",
+     main = "Distribution of Movie Biases (b_i)",
+     xlab = "Movie Bias (deviation from global mean)")
+abline(v = 0, col = "red", lwd = 2)
+
+# --- summary plot ---
+boxplot(pred ~ rating, data = predictions,
+        main = "Distribution of Predictions by Actual Rating",
+        xlab = "Actual Rating", ylab = "Predicted Rating",
+        col = "lightblue", boxwex = 0.5)
+abline(h = 0.5:5, col = "gray", lty = 2)
+grid()
+
+## This shows:
+# How spread out predictions are for each actual rating
+# Whether the model predicts confidently or hesitates
+# If there's clamping (e.g., many predictions at 0.5 or 5.0)
+# from the plot, we get Insight: Model performs best for ratings between 3.0 and 4.5
+
+```
+
+Final Holdout Test RMSE:
+```{r Final Holdout Test RMSE}
+
+round(rmse_final, 5)
+```
+ --- The End --- 
